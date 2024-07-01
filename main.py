@@ -16,35 +16,30 @@ def fetch_npm_package(package_name, version=None):
         return None
 
 
-def get_previous_versions(package_name, amount_of_versions):
-    package_info = fetch_npm_package(package_name)
-    if package_info == None:
-        return None
-    if package_name:
-        versions = list(package_info['versions'].keys())[::-1]  # reverse it to go from latest to oldest
-        if len(versions) < amount_of_versions:      # checks if there is enough versions
-            print("The package has only {} versions".format(len(versions)))
-            return None
-    return versions[:amount_of_versions]
+def get_owner_repo(package):
+    url = package.get('repository')['url']
+    url = re.sub(r'^git\+|\.git$', '', url)  # Clean up the URL
+    return url.split(".com/")[1].split("/")
 
 
-def get_repository_url(package_data):
-    repository = package_data.get('repository', {})
-    if isinstance(repository, dict):
-        url = repository.get('url', '')
-    else:
-        url = repository
-    return re.sub(r'^git\+|\.git$', '', url)  # Clean up the URL
+
+def get_repo_tags(owner, repo):
+    url = f"https://api.github.com/repos/{owner}/{repo}/tags"
+    response = requests.get(url)
+    response.raise_for_status()
+    tags = response.json()
+    return [tag['name'] for tag in tags if not re.search(r'[a-zA-Z]', tag['name'])]     # only versions
+    # return [tag['name'] for tag in tags]      # with betas and alphas
 
 
-def fetch_readme_from_github(repo_url, version):
-    readme_url = f"{repo_url}/raw/v{version}/README.md"
-    response = requests.get(readme_url)
+def get_readme_content(owner, repo, tag):
+    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+    headers = {"Accept": "application/vnd.github.VERSION.raw"}
+    params = {"ref": tag}
+    response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
         return response.text
-    else:
-        print(f"Failed to fetch README for version {version}. Status code: {response.status_code}")
-        return None
+    return None
 
 
 def main():
@@ -56,23 +51,16 @@ def main():
     if amount_of_versions <= 1:   # check at least 2 versions
         print("Invalid execution! The amount of versions has to be greater than 1")
         return
-    latest_versions = get_previous_versions(package_name, amount_of_versions)
-    if latest_versions == None:
-        return
-    readmes = []
-    for version in latest_versions:
-        package = fetch_npm_package(package_name, version)
-        if package == None:
-            return
-        readme = fetch_readme_from_github(get_repository_url(package), version)
-        if readme is not None:
-            readmes.append(readme)
-    print(len(readmes))
-
-    
-    
-    
-
+    package = fetch_npm_package(package_name)
+    owner, repo = get_owner_repo(package)
+    tags = get_repo_tags(owner, repo)
+    latest_tags = tags[:amount_of_versions]  # Get the three latest tags
+    readmes = {}
+    for tag in latest_tags:
+        readme_content = get_readme_content(owner, repo, tag)
+        if readme_content:
+            readmes[tag] = readme_content
+    print(list(readmes.keys()))
 
 
 if __name__ == "__main__":

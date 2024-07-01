@@ -1,6 +1,21 @@
 from sys import argv
-import re
+from re import sub
 import requests
+import openai
+
+
+openai.my_api_key = ''
+
+
+
+def execution_checker():
+    if len(argv) != 3 or not argv[2].isnumeric():   # checks that the file executed with the right amount of args and format
+        print("Invalid execution! python main.py {npm_package} {number_of_last_versions}")
+        return False
+    if int(argv[2]) <= 1:   # check at least 2 versions
+        print("Invalid execution! The amount of versions has to be greater than 1")
+        return False
+    return True
 
 
 def fetch_npm_package(package_name, version=None):
@@ -18,9 +33,8 @@ def fetch_npm_package(package_name, version=None):
 
 def get_owner_repo(package):
     url = package.get('repository')['url']
-    url = re.sub(r'^git\+|\.git$', '', url)  # Clean up the URL
+    url = sub(r'^git\+|\.git$', '', url)  # Clean up the URL
     return url.split(".com/")[1].split("/")
-
 
 
 def get_repo_tags(owner, repo):
@@ -42,19 +56,23 @@ def get_readme_content(owner, repo, tag):
     return None
 
 
+def chatgpt_ans(readmes):
+    messages = [{"role": "user", "content": "I have an npm package, i will provide you {amount} README files,\
+                  each file represent consecutive version of the npm package and i want you to compare the \
+                 README files of the consecutive versions and output the identification and summary of the\
+                  breaking changes in the relevant versions. {readmes}".format(len(readmes), str(readmes.values()))}]
+    response = openai.ChatCompletion.create(model="gpt-4o", messages=messages, temprature=0)
+    return response.choices[0].message["content"]
+
 def main():
-    if len(argv) != 3 or not argv[2].isnumeric():   # checks that the file executed with the right amount of args and format
-        print("Invalid execution! python main.py {npm_package} {number_of_last_versions}")
+    if not execution_checker():
         return
     package_name = argv[1]
     amount_of_versions = int(argv[2])
-    if amount_of_versions <= 1:   # check at least 2 versions
-        print("Invalid execution! The amount of versions has to be greater than 1")
-        return
     package = fetch_npm_package(package_name)
     owner, repo = get_owner_repo(package)
     tags = get_repo_tags(owner, repo)
-    latest_tags = tags[:amount_of_versions]  # Get the three latest tags
+    latest_tags = tags[:amount_of_versions]  # Get the amount_of_versions latest tags
     readmes = {}
     for tag in latest_tags:
         readme_content = get_readme_content(owner, repo, tag)

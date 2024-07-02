@@ -18,6 +18,9 @@ pip install google-generativeai
 ```
 
 ## Usage
+
+Add your API KEY of the chosen AI module
+
 ```bash
 python main.py {npm_package_name} {number_of_versions}
 ```

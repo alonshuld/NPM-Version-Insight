@@ -1,16 +1,18 @@
 from sys import argv
-from re import sub
+from re import sub, search
 import requests
-import openai
+from openai import OpenAI
+import google.generativeai as palm
 
 
-openai.my_api_key = ''
+OPENAI_API_KEY = ''
+GOOGLE_API_KEY = ''
 
 
 
 def execution_checker():
     if len(argv) != 3 or not argv[2].isnumeric():   # checks that the file executed with the right amount of args and format
-        print("Invalid execution! python main.py {npm_package} {number_of_last_versions}")
+        print("Invalid execution! python main.py {npm_package_name} {number_of_last_versions}")
         return False
     if int(argv[2]) <= 1:   # check at least 2 versions
         print("Invalid execution! The amount of versions has to be greater than 1")
@@ -40,10 +42,13 @@ def get_owner_repo(package):
 def get_repo_tags(owner, repo):
     url = f"https://api.github.com/repos/{owner}/{repo}/tags"
     response = requests.get(url)
-    response.raise_for_status()
-    tags = response.json()
-    return [tag['name'] for tag in tags if not re.search(r'[a-zA-Z]', tag['name'])]     # only versions
-    # return [tag['name'] for tag in tags]      # with betas and alphas
+    if response.status_code == 200:     # repo found
+        tags = response.json()
+        return [tag['name'] for tag in tags if not search(r'[a-zA-Z]', tag['name'])]     # only versions
+        # return [tag['name'] for tag in tags]      # with betas and alphas
+    else:
+        print("Repo not found!")
+        return None
 
 
 def get_readme_content(owner, repo, tag):
@@ -57,12 +62,31 @@ def get_readme_content(owner, repo, tag):
 
 
 def chatgpt_ans(readmes):
-    messages = [{"role": "user", "content": "I have an npm package, i will provide you {amount} README files,\
-                  each file represent consecutive version of the npm package and i want you to compare the \
-                 README files of the consecutive versions and output the identification and summary of the\
-                  breaking changes in the relevant versions. {readmes}".format(len(readmes), str(readmes.values()))}]
-    response = openai.ChatCompletion.create(model="gpt-4o", messages=messages, temprature=0)
-    return response.choices[0].message["content"]
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    prompt = "I have an npm package with multiple README files, each corresponding to a different version. I will provide you with {amount} README files. Please compare the README files for each consecutive version and identify and summarize any breaking changes. {readmes}".format(amount=len(readmes), readmes=str(readmes.values()))
+    chat_completion = client.chat.completions.create(
+        messages = [
+            {
+                "role": "user", 
+                "content": prompt
+            }
+        ],
+        model="gpt-3.5-turbo"
+    )
+    return chat_completion.choices[0].message.content
+
+
+def google_ai_ans(readmes):
+    palm.configure(api_key=GOOGLE_API_KEY)
+    prompt = "I have an npm package with multiple README files, each corresponding to a different version. I will provide you with {amount} README files. Please compare the README files for each consecutive version and identify and summarize any breaking changes. {readmes}".format(amount=len(readmes), readmes=str(readmes.values()))
+    completion = palm.generate_text(
+        model='models/text-bison-001',
+        prompt=prompt,
+        temperature=0,
+        candidate_count=1
+    )
+    return completion.candidates[0]["output"]
+
 
 def main():
     if not execution_checker():
@@ -70,15 +94,25 @@ def main():
     package_name = argv[1]
     amount_of_versions = int(argv[2])
     package = fetch_npm_package(package_name)
+    if package == None:     # check if found
+        return
     owner, repo = get_owner_repo(package)
     tags = get_repo_tags(owner, repo)
+    if tags == None:     # check if found
+        return
+    if len(tags) < amount_of_versions:      # check if there is enough versions
+        print("There is only {amount} versions to this package".format(len(tags)))
+        return
     latest_tags = tags[:amount_of_versions]  # Get the amount_of_versions latest tags
     readmes = {}
     for tag in latest_tags:
         readme_content = get_readme_content(owner, repo, tag)
-        if readme_content:
+        if readme_content == None:     # check if found
+            print("Couldn't find README file for verison {version}".format(tag))
+        elif readme_content:
             readmes[tag] = readme_content
-    print(list(readmes.keys()))
+    print(google_ai_ans(readmes))
+    # print(chatgpt_ans(readmes))   # if you want to use chatgpt
 
 
 if __name__ == "__main__":

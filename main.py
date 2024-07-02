@@ -6,7 +6,7 @@ import google.generativeai as palm
 
 
 OPENAI_API_KEY = ''
-GOOGLE_API_KEY = ''
+GOOGLE_API_KEY = 'AIzaSyBmorRwYPDzpmHTRybhvPE7C_sBhUqhuRU'
 
 
 
@@ -34,7 +34,11 @@ def fetch_npm_package(package_name, version=None):
 
 
 def get_owner_repo(package):
-    url = package.get('repository')['url']
+    url = package.get('repository')
+    if url == None:
+        print("Repository not found!")
+        return None, None
+    url = url["url"]
     url = sub(r'^git\+|\.git$', '', url)  # Clean up the URL
     return url.split(".com/")[1].split("/")
 
@@ -97,6 +101,8 @@ def main():
     if package == None:     # check if found
         return
     owner, repo = get_owner_repo(package)
+    if owner == None or repo == None:     # check if found
+        return
     tags = get_repo_tags(owner, repo)
     if tags == None:     # check if found
         return
